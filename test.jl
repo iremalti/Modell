@@ -90,7 +90,8 @@ function Rad(;name, _R= [0. 0. ;0. 0.], v=[0., 0.], phi_roll=0.0, w_roll=0.0, e0
 
    # R= [cos(fa.phi), -sin(fa.phi) ,sin(fa.phi) ,cos(fa.phi)]
 
-    eqs= [  Rx ~ cos(fa.phi)
+    eqs= [  dl.x ~ 100
+            Rx ~ cos(fa.phi)
             Rp ~ -sin(fa.phi)
             Ry ~ sin(fa.phi)
             Rq ~ cos(fa.phi)
@@ -136,7 +137,7 @@ ges_eqs = [
           ]
 
 @named _vehicle =ODESystem(ges_eqs, t)
-@named vehicle =compose(_vehicle,[fix,fix2,tor,lastverteilung,rad,rad2,revol,bod,inertia,inertia2])
+@named vehicle =compose(_vehicle,[rad,bod,inertia])
 
 
 
