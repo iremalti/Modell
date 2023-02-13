@@ -1,52 +1,61 @@
 @variables t
 D= Differential(t)
 
-@register_symbolic smooth_pole(w_roll, grenze)
-function smooth_pole(w_roll, grenze )
-    if (abs(w_roll) < grenze) 
-        y = (-1/(2 * abs(grenze)^3) * w_roll^2 + 3/(2 * abs(grenze)));
-        else
-        y= (1/abs(w_roll));
-        end
-    return y
-end
-
 #Connectoren entsprechend der Modelica Komponenten
 
- @connector function frame_a(;name, pos=[0., 0.], phi=0.0,  _f=[0., 0.], tau=0.0)
-     sts = @variables ox(t)=pos[1] oy(t)=pos[2] phi(t) fx(t)=_f [connect=Flow] fy(t)=_f [connect=Flow] tau(t) [connect=Flow]  
+@connector function frame_a(;name, pos=[0., 0.], phi=0.0,  _f=[0., 0.], tau=0.0)
+     sts = @variables ox(t)=pos[1] oy(t)=pos[2] phi(t) fx(t)=_f[1] [connect=Flow] fy(t)=_f[2] [connect=Flow] tau(t) [connect=Flow]  
      ODESystem(Equation[], t, sts, []; name=name)
  end
 
- @connector function frame_b(;name, pos=[0., 0.], phi=0.0,  _f=[0., 0.], tau=0.0)
-    sts = @variables ox(t)=pos[1] oy(t)=pos[2] phi(t) fx(t)=_f [connect=Flow] fy(t)=_f [connect=Flow] tau(t) [connect=Flow]  
+
+@connector function frame_b(;name, pos=[0., 0.], phi=0.0,  _f=[0., 0.], tau=0.0)
+    sts = @variables ox(t)=pos[1] oy(t)=pos[2] phi(t) fx(t)=_f[1] [connect=Flow] fy(t)=_f[2] [connect=Flow] tau(t) [connect=Flow]  
     ODESystem(Equation[], t, sts, []; name=name)
 end
+
 
 @connector function flange_a(;name)
     sts = @variables phi(t)  tau(t) [connect=Flow]  
     ODESystem(Equation[], t, sts, []; name=name, defaults = Dict(phi => 0.0, tau => 0.0))
 end
 
+
 @connector function flange_b(;name)
     sts = @variables phi(t)  tau(t) [connect=Flow]  
     ODESystem(Equation[], t, sts, []; name=name, defaults = Dict(phi => 0.0, tau => 0.0))
 end
 
+
 @connector function realInput(;name, x=0.0)  
-    sts = @variables x(t) 
+    sts = @variables x(t) [input=true]
     ODESystem(Equation[], t, sts, []; name=name)
 end
+
 
 @connector function realOutput(;name, x=0.0)  
-    sts = @variables x(t)  
+    sts = @variables x(t) [output=true]
     ODESystem(Equation[], t, sts, []; name=name)
 end
 
-function Body(;name, v=[0., 0.], a=[0., 0.],phi=0.0, w=0.0, z=0.0)  
+
+function Fixed(;name, pos=[0., 0.], phi=0.0)  
     @named fa = frame_a()
-    ps = @parameters m = 1450 I=1.8 
-    sts= @variables vx(t)=v[1] vy(t)=v[2]  ax(t)=v[1] ay(t)=a[2]  phi(t) w(t) z(t)
+    ps = @parameters posx=pos[1] posy=pos[2] phi=phi
+    
+    eqs = [
+        fa.ox ~ posx
+        fa.oy ~ posy
+        fa.phi ~ phi
+    ]
+    compose(ODESystem(eqs, t, [], ps; name=name), fa)
+end
+
+
+function Body(;name, v=[0., 0.], phi=0.0, w=0.0, z=0.0)  
+    @named fa = frame_a()
+    ps = @parameters m=1.0 I=1.0 
+    sts= @variables vx(t)=v[1] vy(t)=v[2] ax(t) ay(t) phi(t)=0.0 [state_priority = 100] w(t)=w [state_priority = 100] z(t)=z
     
     eqs = [fa.tau ~ I * z                                                                 # Drallsatz
            D.(fa.ox) ~ vx                                                                # Geschwindigkeitsableitung 
@@ -59,28 +68,31 @@ function Body(;name, v=[0., 0.], a=[0., 0.],phi=0.0, w=0.0, z=0.0)
            fa.fx ~ m * ax                                                               # newton's law
            fa.fy ~ m * ay ]
     compose(ODESystem(eqs, t, sts, ps; name=name), fa)
-    
 end
 
 
-function FixedTranslation(;name, r0 =[0. , 0.],_R=[0. 0.;0. 0.])     
+function FixedTranslation(;name, r0 =[1. , 0.])     
     @named fa= frame_a() 
     @named fb= frame_b()
-    ps= @parameters rx(t)=0. ry(t)=0.5
-    sts= @variables  r0x(t)=r0[1] r0y(t)=r0[2] Rx(t)= _R[1] Rp(t)= _R[2] Ry(t)= _R[3] Rq(t)= _R[4]    
-    eqs= [  Rx ~ cos(fa.phi)
-            Rp ~ -sin(fa.phi)
-            Ry ~ sin(fa.phi)
-            Rq ~ cos(fa.phi)
-            Rx * rx + Rp * ry .~ r0x                                                       # Position
-            Ry * rx + Rq * ry .~ r0y                                                
-            fa.ox .+ r0 .~ fb.ox                                                           # Positionen verbinden
-            fa.oy .+ r0 .~ fb.oy
-            fa.phi .~ fb.phi                                                               # winkel verbinden
-            fa.fx .+ fb.fx .~ 0                                                            # kräfte ausgleich
-            fa.fy .+ fb.fy .~ 0
-            fa.tau .+ fb.tau .+ r0x * fb.fy + r0y * -fb.fx ~ 0                                  # Moment ausgleich
-            ]
+    ps= @parameters rx=r0[1] ry=r0[2] # Versatz von fb gegenüber fa zerlegt in Koordinaten von fa
+    #sts= @variables  r0x(t)=r0[1] r0y(t)=r0[2] Rx(t)= _R[1] Rp(t)= _R[2] Ry(t)= _R[3] Rq(t)= _R[4]
+    sts= @variables  r0x(t) r0y(t) Rx(t) Rp(t) Ry(t) Rq(t) 
+    eqs= [  
+        Rx ~ cos(fa.phi)
+        Rp ~ -sin(fa.phi)
+        Ry ~ sin(fa.phi)
+        Rq ~ cos(fa.phi)
+        Rx * rx + Rp * ry ~ r0x                                                       # Position
+        Ry * rx + Rq * ry ~ r0y                                                
+        fa.ox + r0x ~ fb.ox                                                           # Positionen verbinden
+        fa.oy + r0y ~ fb.oy
+        fa.phi ~ fb.phi                                                               # winkel verbinden
+        fa.fx + fb.fx ~ 0                                                            # kräfte ausgleich
+        fa.fy + fb.fy ~ 0
+        # Momentenbilanz um den Ursprung von fa (berechnet in Koordinaten von fa)
+        fa.tau + fb.tau + r0x * fb.fy - r0y * fb.fx ~ 0
+        #fa.tau + fb.tau + rx * fb.fy - ry * fb.fx ~ 0
+        ]
     compose(ODESystem(eqs, t, sts, ps; name=name), [fa,fb])
 end
 
@@ -89,7 +101,7 @@ function Revolute(;name, phi=0.0, w=0.0, z=0.0, tau=0.0)
     @named fa= frame_a() 
     @named fb= frame_b()
     @named fla= flange_a()
-    sts= @variables phi(t) w(t) z(t) tau(t)  
+    sts= @variables phi(t)=phi [state_priority = 100] w(t)=w [state_priority = 100] z(t)=z tau(t)=tau  
     eqs= [  D.(phi) ~ w                                                                    # Differentialgleichungen
             D.(w) ~ z 
             fla.phi ~ phi
@@ -106,15 +118,17 @@ function Revolute(;name, phi=0.0, w=0.0, z=0.0, tau=0.0)
 end
  
 
-function Rad(;name, _R= [0. 0. ;0. 0.], v=[0., 0.], phi_roll=0.0, w_roll=0.0, e0=[0.,0.], v_lat=0.0, v_long=0.0, v_slip_lat=0.0, v_slip_long=0.0,v_slip=0.0,fN=0.0, f_long=0.0, f_lat=0.0, s_long=0.0, s_lat=0.0, s_F=0.0,u_F=0.0, u_long=0.0,u_lat=0.0)
+function Rad(;name, v=[0., 0.], phi_roll=0.0, w_roll=0.0, e=[1., 0.])
     @named fa= frame_a() 
     @named fla= flange_a()
     @named dl = realInput()
     @named flo = realOutput()
-    @named fat= realOutput()
+    @named fat = realOutput()
 
-    ps= @parameters radius=0.3 C=1.6 B=7 K=1 grenze=0.01   ex(t)=1 ey(t)=1  # e=[1,1]
-    sts= @variables Rx(t)= _R[1] Rp(t)= _R[2] Ry(t)= _R[3] Rq(t)= _R[4] vx(t)=v[1] vy(t)=v[2] phi_roll(t) w_roll(t)  e0x(t)=e0[1] e0y(t)=e0[2] v_lat(t) v_long(t) v_slip_lat(t) v_slip_long(t) v_slip(t) fN(t) f_long(t) f_lat(t) s_long(t) s_lat(t) s_F(t) u_F(t) u_long(t) u_lat(t)
+    _e = normalize(e)
+
+    ps= @parameters radius=0.3 C=1.6 B=7 K=1 grenze=0.01 ex(t)=_e[1] ey(t)=_e[2]
+    sts= @variables Rx(t) Rp(t) Ry(t) Rq(t) vx(t)=v[1] vy(t)=v[2] phi_roll(t) w_roll(t) e0x(t) e0y(t) v_lat(t) v_long(t) v_slip_lat(t) v_slip_long(t) v_slip(t) fN(t) f_long(t) f_lat(t) s_long(t) s_lat(t) s_F(t) u_F(t) u_long(t) u_lat(t)
     eqs= [  Rx ~ cos(fa.phi)
             Rp ~ -sin(fa.phi)
             Ry ~ sin(fa.phi)
@@ -150,26 +164,29 @@ function Rad(;name, _R= [0. 0. ;0. 0.], v=[0., 0.], phi_roll=0.0, w_roll=0.0, e0
 end
 
 
-function Lastenverteilung(;name)     
-   
-    @named fl= realInput()
-    @named flat= realInput()
-    @named d= realInput()
-    @named frl= realInput()
-    @named ff= realOutput()
-    @named fr= realOutput()
-    @named M= realInput()
+function Lastenverteilung(;name, m, g, h, lr, lf)     
+    @named f_longFront = realInput()
+    @named f_latFront = realInput()
+    @named delta_steer = realInput()
+    @named f_longRear = realInput()
+    @named f_normalFront = realOutput()
+    @named f_normalRear = realOutput()
+    @named tau_rear = realInput()
  
-    ps= @parameters  m = 1450 g=9.81 h=0.4 lr=1.59 lf=1.1  
-    eqs= [ M.x ~ ff.x + fr.x - m * g                                                                                    # Gleichgewicht der Momente
-           fr.x ~ ( h *(fl.x * cos(d.x) - flat.x * sin(d.x)+ frl.x) + ff.x * lf ) / lr         # Gleichgewicht der Kräfte
-            ]                
-    compose(ODESystem(eqs, t, [], ps; name=name), [fl,flat,d,frl,ff,fr,M])
+    ps = @parameters  m=m g=g h=h lr=lr lf=lf  
+    eqs = [
+        tau_rear.x ~ f_normalFront.x + f_normalRear.x - m * g                                                                                    # Gleichgewicht der Momente
+        f_normalRear.x ~ ( h *(f_longFront.x * cos(delta_steer.x) - f_latFront.x * sin(delta_steer.x) + f_longRear.x) + f_normalFront.x * lf ) / lr         # Gleichgewicht der Kräfte
+    ]                
+    compose(
+        ODESystem(eqs, t, [], ps; name=name),
+        [f_longFront, f_latFront, delta_steer, f_longRear, f_normalFront, f_normalRear, tau_rear]
+    )
 end
 
 # entsprechen den Modelica Komponenten
 
-function Inertia(;name,phi=0.0, w=0.0, z=0.0)
+function Inertia(;name, phi=0.0, w=0.0, z=0.0)
     @named fla = flange_a()
     @named flb = flange_b()
     ps =@parameters J =1.8
@@ -184,32 +201,26 @@ function Inertia(;name,phi=0.0, w=0.0, z=0.0)
     compose(ODESystem(eqs, t, sts, ps; name=name), [fla,flb])
 end
 
+
 function Torque(;name)   
-    @named in =realInput()
+    @named in = realInput()
     @named flb = flange_b()
-    sts = @variables tau(t)
-    eqs = [tau ~ in.x
-           -in.x ~ flb.tau ]
-    compose(ODESystem(eqs, t, sts,[]; name=name), [flb,in])
+
+    eqs = [-in.x ~ flb.tau,]
+    
+    compose(ODESystem(eqs, t, [],[]; name=name), [flb,in])
 end
 
-function Konst(;name)   
+
+function Konst(;name, k=1.0)   
     @named y = realOutput()
-    ps = @parameters k = 100
+    ps = @parameters k=k
     eqs = [
             y.x ~ k
           ]
     compose(ODESystem(eqs, t, [],ps; name=name), y)
 end
 
-# function ende(;name)   
-#     @named y = realInput()
-#     ps = @parameters k = 0
-#     eqs = [
-#             y.x ~ k
-#           ]
-#     compose(ODESystem(eqs, t, [],ps; name=name), y)
-# end
 
 function AngleSensor(;name)   
     @named out = realOutput()
@@ -221,13 +232,14 @@ function AngleSensor(;name)
     compose(ODESystem(eqs, t, [],[]; name=name), [fla,out])
 end
 
-function Position(;name, phi=0.0, w=0.0, z=0.0, w_crit=0.0)   
-    @named phir =realInput()
+
+function Position(;name, phi=0.0, w=0.0, z=0.0)   
+    @named phir = realInput()
     @named flb = flange_b()
     ps= @parameters f_crit=50  af=1.3617  bf=0.6180
-    sts = @variables phi(t) w(t) z(t) w_crit(t) 
+    sts = @variables phi(t) w(t)=w z(t) w_crit(t) 
     eqs = [ w_crit ~ pi * f_crit
-            phi ~ phir.x
+            #phi ~ phir.x
             phi ~ flb.phi
             D.(phi) ~ w                                                                    # Differentialgleichungen
             D.(w) ~ z 
@@ -236,35 +248,51 @@ function Position(;name, phi=0.0, w=0.0, z=0.0, w_crit=0.0)
     compose(ODESystem(eqs, t, sts, ps; name=name), [flb,phir])
 end
 
-function Trapezoid(;name,offset =pi/4)#,amplitude, rising, width, falling, period, nperiod, startTime)   
-    @named x =realOutput()
+
+function Trapezoid(;name, offset=0.0, amplitude=1.0, rising=0.1, width=0.2, falling=0.1, period=1.0, nperiod=-1, startTime=0.0)   
+    @named y = realOutput()
    
-    ps= @parameters offset=offset amplitude=0*pi/4 rising=0.1 width=0.8 falling=0.1 period=1.8 nperiod=-1 startTime=0
+    ps= @parameters offset=offset amplitude=amplitude rising=rising width=width falling=falling period=period nperiod=-1 startTime=0
     eqs = [ 
-             x.x ~ offset + signal(amplitude, rising, width, falling, period, nperiod, startTime)
+             y.x ~ trapezoid(t, offset, amplitude, rising, width, falling, period, nperiod, startTime)
           ]
-    compose(ODESystem(eqs, t, [],ps; name=name), x)
+    
+    # TODO include appropriate events to fire between signal sections.
+    # but which one is appropriate? https://docs.sciml.ai/ModelingToolkit/stable/basics/Events/
+    compose(ODESystem(eqs, t, [], ps; name=name), y)
 end
 
-#offset braucht ein default
 
+@register_symbolic trapezoid(t, offset, amplitude, rising, width, falling, period, nperiod, startTime)
 
-
-@register_symbolic zeit(t)
-value_vector = LinRange(0., 10., 10)     
-zeit(t) = t >=10 ? alue_vector[end] : value_vector[Int(floor(t))+1]
-
-
-@register_symbolic signal( amplitude, rising, width, falling, period, nperiod, startTime)
-function signal(amplitude, rising, width, falling, period, nperiod, startTime)
+function trapezoid(t, offset, amplitude, rising, width, falling, period, nperiod, startTime)
     T_width = rising + width
     T_falling = T_width + falling
-    count = integer((time - startTime)/period)
+    count = fld(t - startTime, period)
     T_start = startTime + count * period
-    if (zeit(t) < startTime || nperiod == 0 || (nperiod > 0 && count >= nperiod)) return 0 
-    elseif (zeit(t)< T_start + T_rising) return amplitude*(time - T_start)/rising 
-    elseif (zeit(t) < T_start + T_width) return amplitude 
-    elseif (zeit(t) < T_start + T_falling) return amplitude*(T_start + T_falling - time)/falling 
-    else return 0
+    
+    if t < startTime || nperiod == 0 || (nperiod > 0 && count >= nperiod)
+        t >= 35.3
+        return offset
+    elseif t < T_start + rising
+        return offset + amplitude*(t - T_start)/rising 
+    elseif t < T_start + T_width
+        return offset + amplitude 
+    elseif t < T_start + T_falling
+        return offset + amplitude*(T_start + T_falling - t) / falling 
+    else
+        t >= 35.3
+        return offset
     end
+end
+
+
+@register_symbolic smooth_pole(w_roll, grenze)
+function smooth_pole(w_roll, grenze)
+    if (abs(w_roll) < grenze) 
+        y = (-1/(2 * abs(grenze)^3) * w_roll^2 + 3/(2 * abs(grenze)));
+        else
+        y= (1/abs(w_roll));
+        end
+    return y
 end
