@@ -252,7 +252,7 @@ end
 function Trapezoid(;name, offset=0.0, amplitude=1.0, rising=0.1, width=0.2, falling=0.1, period=1.0, nperiod=-1, startTime=0.0)   
     @named y = realOutput()
    
-    ps= @parameters offset=offset amplitude=amplitude rising=rising width=width falling=falling period=period nperiod=-1 startTime=0
+    ps= @parameters offset=offset amplitude=amplitude rising=rising width=width falling=falling period=period nperiod=nperiod startTime=startTime
     eqs = [ 
              y.x ~ trapezoid(t, offset, amplitude, rising, width, falling, period, nperiod, startTime)
           ]
@@ -272,7 +272,6 @@ function trapezoid(t, offset, amplitude, rising, width, falling, period, nperiod
     T_start = startTime + count * period
     
     if t < startTime || nperiod == 0 || (nperiod > 0 && count >= nperiod)
-        t >= 35.3
         return offset
     elseif t < T_start + rising
         return offset + amplitude*(t - T_start)/rising 
@@ -281,7 +280,6 @@ function trapezoid(t, offset, amplitude, rising, width, falling, period, nperiod
     elseif t < T_start + T_falling
         return offset + amplitude*(T_start + T_falling - t) / falling 
     else
-        t >= 35.3
         return offset
     end
 end
